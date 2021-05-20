@@ -74,7 +74,7 @@ def main():
 
     #HARDCODED game modes
     humW=True #True if played by human, false otherwise
-    humB=True
+    humB=False
 
     gameOver=False
     run=True

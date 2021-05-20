@@ -53,6 +53,11 @@ class GameState:
         self.wKingPos = (7, 4)
         self.bKingPos = (0, 4)
 
+        #advanced version
+        self.inCheck=False
+        self.pins = []
+        self.checks = []
+
         #ends
         self.checkMate = False
         self.staleMate = False
@@ -216,55 +221,103 @@ class GameState:
         else:
             return self.square_under_attack(self.bKingPos[0], self.bKingPos[1])
 
+    def search_checks_pins(self):
+        pins=[]
+        checks=[]
+        inCheck=False
+        if self.turn_white:
+            enemy="b"
+            ally="w"
+            sr=self.wKingPos[0]
+            sc=self.wKingPos[1]
+        else:
+            enemy = "w"
+            ally = "b"
+            sr = self.bKingPos[0]
+            sc = self.bKingPos[1]
+
+        dir = ((-1, 0), (0, -1), (1, 0), (0, 1), (-1, -1), (-1, 1), (1, -1), (1, 1))
+        for j in range(len(dir)):
+            d=dir[j]
+            pos_pin=()
+            for i in range(1,8):
+                er=sr+d[0]*i
+                ec=sc+d[1]*i
+                if 0 <= er < 8 and 0 <= ec < 8:
+                    end_piece=self.board[er][ec]
+                    if end_piece[0] == ally and end_piece[1]!='k':
+                        if pos_pin==():
+                            pos_pin=(er,ec,d[0],d[1])
+                        else:
+                            break
+                    elif end_piece[0]==enemy:
+                        type=end_piece[1]
+                        #5 type theory 7.(m14)
+                        if(0<=j<=3 and type =="r") or \
+                                (4<=j<=7 and type =="b") or \
+                                (i==1 and type=="p" and ((enemy=='w'and 6<=j<=7) or (enemy=='b' and 4<=j<=5))) or \
+                                (type=='q') or (i==1 and type=='k'):
+                            if pos_pin==():
+                                inCheck=True
+                                checks.append((er,ec,d[0],d[1]))
+                                break
+                            else:
+                                pins.append(pos_pin)
+                                break
+                        else:
+                            break
+                else:
+                    break
+        #check knights
+        k_dir = ((-2, -1), (-2, 1), (-1, -2), (-1, 2), (1, -2), (1, 2), (2, -1), (2, 1))
+        for m in k_dir:
+            er = sr + m[0]
+            ec = sc + m[1]
+            if 0<= er < 8 and 0 <= ec < 8:
+                end_piece=self.board[er][ec]
+                if end_piece[0] == enemy and end_piece[1]=='n':
+                    inCheck=True
+                    checks.append((er,ec,m[0],m[1]))
+        return inCheck, pins, checks
+
     def get_valid_moves(self):
         """
         Method for computing all valid moves
         :return moves - a list of Move objects with all the valid moves
         """
-        # castling and en-passant rights are stored, because move affects these values
-        temp_enpassant_possible = self.enpas_pos
-        temp_castle = CastleRights(self.cr_castle_r.wks, self.cr_castle_r.bks,
-                                   self.cr_castle_r.wqs, self.cr_castle_r.bqs)
-
-        # for validating a possible move
-        #1 all possibile moves are generated
-        #2 each pos moves are made
-        #3 generate opponent move
-        #4 check if any of those moves let the king attacked
-        #5 moves which let the king in chess are eliminated
-        #6 the moves are undone
-        moves = self.get_all_possible_moves()  # 1
-
-        # castle moves are directly introduced in valid moves
-        if not self.turn_white:
-            self.get_castle_moves(self.bKingPos[0], self.bKingPos[1], moves)
+        moves=[]
+        self.inCheck, self.pins, self.checks=self.search_checks_pins()
+        if self.turn_white:
+            kingR=self.wKingPos[0]
+            kingC=self.wKingPos[1]
         else:
-            self.get_castle_moves(self.wKingPos[0], self.wKingPos[1], moves)
+            kingR = self.bKingPos[0]
+            kingC = self.bKingPos[1]
+        if self.inCheck:
+            if len(self.checks)==1:
+                moves=self.get_all_possible_moves()
+                check=self.checks[0]
+                checkR=check[0]
+                checkC=check[1]
+                pieceChecking=self.board[checkR][checkC]
+                validSqs=[]
+                if pieceChecking[1]=='n':
+                    validSqs=[(checkR,checkC)]
+                else:
+                    for i in range(1,8):
+                        validSq=(kingR+check[2]*i, kingC+check[3]*i)
+                        validSqs.append(validSq)
+                        if validSq[0]== checkR and validSq[1]==checkC:
+                            break
 
-        for i in range(len(moves) - 1, -1, -1):  # 2
-            self.make_move(moves[i])
-            # 3 #4
-            self.turn_white = not self.turn_white
-            if self.in_check():
-                moves.remove(moves[i])  # 5
-            self.turn_white = not self.turn_white
-            self.undo_move()
-
-        # game ending possibilities
-        if len(moves) == 0:
-            if self.in_check():
-                self.checkMate = True
-                #print("Checkmate !")
+                for i in range(len(moves)-1,-1,-1):
+                    if moves[i].pieceMoved[1] != 'k':
+                        if not (moves[i].er, moves[i].ec) in validSqs:
+                            moves.remove(moves[i])
             else:
-                self.staleMate = True
-                #print("Stalemate !")
+                self.get_king_moves(kingR,kingC, moves)
         else:
-            self.checkMate = False
-            self.staleMate = False
-
-        # the rigths are restored, and the values are not affected
-        self.enpas_pos = temp_enpassant_possible
-        self.cr_castle_r = temp_castle
+            moves=self.get_all_possible_moves()
 
         return moves
 
@@ -300,6 +353,16 @@ class GameState:
         :parameter j - column on which the rock is
         :parameter moves - list of all the possible moves
         """
+        pinned=False
+        pin_dir=()
+        for k in range(len(self.pins)-1,-1,-1):
+            if self.pins[k][0]==i and self.pins[k][1]==j:
+                pinned=True
+                pin_dir=(self.pins[k][2], self.pins[k][3])
+                if self.board[i][j][1]!='q':
+                    self.pins.remove(self.pins[k])
+                break
+
         # the rook can move in 4 directions
         directions = ((-1, 0), (0, -1), (1, 0), (0, 1))
 
@@ -312,19 +375,20 @@ class GameState:
         # all 4 directions are covered as long as the fields are empty
         for d in directions:
             for m in range(1, 8):
-                cri = i + d[0] * m
-                crj = j + d[1] * m
-                if 0 <= cri <= 7 and 0 <= crj <= 7:  # check if the table ends
-                    # the landing square mai be empty
-                    if self.board[cri][crj] == '--':
-                        moves.append(Move((i, j), (cri, crj), self.board))
-                    # oponent_colour piece that may be captured
-                    elif self.board[cri][crj][0] == oponent_colour:
-                        moves.append(Move((i, j), (cri, crj), self.board))
-                        break
-                    # own piece
-                    else:
-                        break
+                er = i + d[0] * m
+                ec = j + d[1] * m
+                if 0 <= er < 8 and 0 <= ec < 8:  # check if the table ends
+                    if not pinned or pin_dir==d or pin_dir == (-d[0], -d[1]):
+                        # the landing square may be empty
+                        if self.board[er][ec] == '--':
+                            moves.append(Move((i, j), (er, ec), self.board))
+                        # oponent_colour piece that may be captured
+                        elif self.board[er][ec][0] == oponent_colour:
+                            moves.append(Move((i, j), (er, ec), self.board))
+                            break
+                        # own piece
+                        else:
+                            break
                 else:
                     break
 
@@ -335,22 +399,31 @@ class GameState:
         :parameter j - column on which the king is
         :parameter moves - list of all possible moves
         """
-        directions = ((1, 1), (1, -1), (1, 0), (0, -1), (0, 1), (-1, -1), (-1, 1), (-1, 0))
-        if self.turn_white:
-            oponent = 'b'
-        else:
-            oponent = 'w'
-        for d in directions:
-            cri = i + d[0]
-            crj = j + d[1]
-            if 0 <= cri <= 7 and 0 <= crj <= 7:
-                # empty
-                if self.board[cri][crj][0] == '-':
-                    moves.append(Move((i, j), (cri, crj), self.board))
+        row = (-1, -1, -1, 0, 0, 1, 1, 1)
+        col = (-1, 0, 1, -1, 1, -1, 0, 1)
 
-                # oponent
-                elif self.board[cri][crj][0] == oponent:
-                    moves.append(Move((i, j), (cri, crj), self.board))
+        if self.turn_white:
+            ally = 'w'
+        else:
+            ally = 'b'
+
+        for d in range(8):
+            er = i + row[d]
+            ec = j + col[d]
+            if 0 <= er < 8 and 0 <= ec < 8:
+                # empty
+                if self.board[er][ec][0] != ally:
+                    if ally=='w':
+                        self.wKingPos = (er, ec)
+                    else:
+                        self.bKingPos = (er, ec)
+                    inCheck, pins, checks=self.search_checks_pins()
+                    if not inCheck:
+                        moves.append(Move((i, j), (er, ec), self.board))
+                    if ally=='w':
+                        self.wKingPos = (i, j)
+                    else:
+                        self.bKingPos = (i, j)
 
     def get_castle_moves(self, r, c, moves):
         """
@@ -382,27 +455,37 @@ class GameState:
         :param j: column on which the bishop is
         :param moves: list of all possible moves
         """
+        pinned = False
+        pin_dir = ()
+        for k in range(len(self.pins) - 1, -1, -1):
+            if self.pins[k][0] == i and self.pins[k][1] == j:
+                pinned = True
+                pin_dir = (self.pins[k][2], self.pins[k][3])
+                self.pins.remove(self.pins[k])
+                break
         directions = ((-1, 1), (1, -1), (1, 1), (-1, -1))
         if self.turn_white:
             oponent = 'b'
         else:
             oponent = 'w'
+
         for d in directions:
             for m in range(1, 8):
                 cri = i + d[0] * m
                 crj = j + d[1] * m
                 if 0 <= cri <= 7 and 0 <= crj <= 7:
                     # empty
-                    if self.board[cri][crj][0] == '-':
-                        moves.append(Move((i, j), (cri, crj), self.board))
+                    if not pinned or pin_dir == d or pin_dir == (-d[0], -d[1]):
+                        if self.board[cri][crj][0] == '-':
+                            moves.append(Move((i, j), (cri, crj), self.board))
 
                     # oponent
-                    elif self.board[cri][crj][0] == oponent:
-                        moves.append(Move((i, j), (cri, crj), self.board))
-                        break
+                        elif self.board[cri][crj][0] == oponent:
+                            moves.append(Move((i, j), (cri, crj), self.board))
+                            break
                     # piesa mea
-                    else:
-                        break
+                        else:
+                            break
                 else:
                     break
 
@@ -416,55 +499,6 @@ class GameState:
         self.get_rook_moves(i, j, moves)
         self.get_bishop_moves(i, j, moves)
 
-    def get_pawn_moves(self, i, j, moves):
-        """
-        Method for computing all the moves based on pawn piece movement
-        :param i: row on which the pawn is
-        :param j: column on which the pawn is
-        :param moves: list of all the moves possible
-        """
-        # white pawn
-        if self.turn_white:
-            # one&two squares moves
-            if self.board[i - 1][j] == "--":
-                moves.append(Move((i, j), (i - 1, j), self.board))
-                if i == 6 and self.board[i - 2][j] == "--":
-                    moves.append(Move((i, j), (i - 2, j), self.board))
-            # capturing
-            # left
-            if j >= 1:
-                if self.board[i - 1][j - 1][0] == "b":
-                    moves.append(Move((i, j), (i - 1, j - 1), self.board))
-                elif (i - 1, j - 1) == self.enpas_pos:
-                    moves.append(Move((i, j), (i - 1, j - 1), self.board, enpassant=True))
-
-            # right
-            if j <= 6:
-                if self.board[i - 1][j + 1][0] == "b":
-                    moves.append(Move((i, j), (i - 1, j + 1), self.board))
-                elif (i - 1, j + 1) == self.enpas_pos:
-                    moves.append(Move((i, j), (i - 1, j + 1), self.board, enpassant=True))
-        # black
-        else:
-            # one&two squares moves
-            if self.board[i + 1][j] == "--":
-                moves.append(Move((i, j), (i + 1, j), self.board))
-                if i == 1 and self.board[i + 2][j] == "--":
-                    moves.append(Move((i, j), (i + 2, j), self.board))
-            # capturing
-            # left
-            if j >= 1:
-                if self.board[i + 1][j - 1][0] == "w":
-                    moves.append(Move((i, j), (i + 1, j - 1), self.board))
-                elif (i + 1, j - 1) == self.enpas_pos:
-                    moves.append(Move((i, j), (i + 1, j - 1), self.board, enpassant=True))
-            # right
-            if j <= 6:
-                if self.board[i + 1][j + 1][0] == "w":
-                    moves.append(Move((i, j), (i + 1, j + 1), self.board))
-                elif (i + 1, j + 1) == self.enpas_pos:
-                    moves.append(Move((i, j), (i + 1, j + 1), self.board, enpassant=True))
-
     def get_knight_moves(self, i, j, moves):
         """
         Method for computing all the moves based on knight piece movement
@@ -472,19 +506,115 @@ class GameState:
         :param j: column on which knight is
         :param moves: list of all possible moves
         """
-        directions = ((2, 1), (2, -1), (1, 2), (1, -2), (-2, 1), (-2, -1), (-1, 2), (-1, -2))
-        if self.turn_white:
-            opon = 'b'
-        else:
-            opon = 'w'
-        for d in directions:
-            cri = i + d[0]
-            crj = j + d[1]
-            if 0 <= cri <= 7 and 0 <= crj <= 7:
-                # empty
-                if self.board[cri][crj][0] == '-':
-                    moves.append(Move((i, j), (cri, crj), self.board))
+        pinned = False
+        for k in range(len(self.pins) - 1, -1, -1):
+            if self.pins[k][0] == i and self.pins[k][1] == j:
+                pinned = True
+                self.pins.remove(self.pins[k])
+                break
 
-                # oponent
-                elif self.board[cri][crj][0] == opon:
-                    moves.append(Move((i, j), (cri, crj), self.board))
+        directions = ((-2, -1), (-2, 1), (-1, -2), (-1, 2), (1, -2), (1, 2), (2, -1), (2, 1))
+        if self.turn_white:
+            ally = 'w'
+        else:
+            ally = 'b'
+
+        for m in directions:
+            er = i + m[0]
+            ec = j + m[1]
+            if 0 <= er < 8 and 0 <= ec < 8:
+                # empty
+                if not pinned:
+                    ep=self.board[er][ec]
+                    if ep[0] != ally:
+                        moves.append(Move((i, j), (er, ec), self.board))
+
+    def get_pawn_moves(self, i, j, moves):
+        """
+        Method for computing all the moves based on pawn piece movement
+        :param i: row on which the pawn is
+        :param j: column on which the pawn is
+        :param moves: list of all the moves possible
+        """
+        pin=False
+        pin_dir=()
+        for k in range(len(self.pins)-1,-1,-1):
+            if self.pins[k][0]== i and self.pins[k][1]==j:
+                pin=True
+                pin_dir=(self.pins[k][2], self.pins[k][3])
+                self.pins.remove(self.pins[k])
+                break
+
+        if self.turn_white:
+            move_dir=-1
+            sr=6
+            enemy='b'
+            kingr, kingc=self.wKingPos
+        else:
+            move_dir=1
+            sr=1
+            enemy='w'
+            kingr, kingc = self.bKingPos
+
+        # one&two squares moves
+        if self.board[i +move_dir][j] == "--":
+            if not pin or pin_dir==(move_dir,0):
+                moves.append(Move((i, j), (i+move_dir, j), self.board))
+                if i == sr and self.board[i+2*move_dir][j] == "--":
+                    moves.append(Move((i, j), (i+2*move_dir, j), self.board))
+
+        # capturing
+        # left
+        if j >= 1:
+            if not pin or pin_dir == (move_dir, -1):
+                if self.board[i+move_dir][j-1][0]==enemy:
+                    moves.append(Move((i, j), (i+move_dir, j - 1), self.board))
+                # enpass discover check
+                if (i+move_dir, j - 1) == self.enpas_pos:
+                    attP=blockP=False
+                    if kingr==i:
+                        if kingc<j:
+                            inside=range(kingc+1, j-1)
+                            outside=range(j+1,8)
+                        else:
+                            inside=range(kingc-1,j,-1)
+                            outside=range(j-2,-1,-1)
+                        for k in inside:
+                            endpos=self.board[i][k]
+                            if endpos!="--":
+                                blockP=True
+                        for k in outside:
+                            endpos = self.board[i][k]
+                            if endpos[0]==enemy and (endpos[1]=='r' or endpos[1]=='q'):
+                                attP=True
+                            elif endpos!="--":
+                                blockP=True
+                    if not attP or blockP:
+                        moves.append(Move((i, j), (i+move_dir, j - 1), self.board, enpassant=True))
+        #right
+        if j <= 6:
+            if not pin or pin_dir == (move_dir, 1):
+                if self.board[i + move_dir][j+1][0] == enemy:
+                    moves.append(Move((i, j), (i+move_dir, j + 1), self.board))
+                #enpass discover check
+                if (i+move_dir, j + 1) == self.enpas_pos:
+                    attP = blockP = False
+                    if kingr == i:
+                        if kingc < j:
+                            inside = range(kingc + 1, j)
+                            outside = range(j + 2, 8)
+                        else:
+                            inside = range(kingc - 1, j+1, -1)
+                            outside = range(j - 1, -1, -1)
+                        for k in inside:
+                            endpos = self.board[i][k]
+                            if endpos != "--":
+                                blockP = True
+                        for k in outside:
+                            endpos = self.board[i][k]
+                            if endpos[0] == enemy and (endpos[1] == 'r' or endpos[1] == 'q'):
+                                attP = True
+                            elif endpos != "--":
+                                blockP = True
+                    if not attP or blockP:
+                        moves.append(Move((i, j), (i+move_dir, j + 1), self.board, enpassant=True))
