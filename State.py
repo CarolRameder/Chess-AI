@@ -1,5 +1,5 @@
 from Move import Move
-
+import numpy as np
 class CastleRights:
     """
     Class for representing a castle move
@@ -17,7 +17,6 @@ class CastleRights:
         self.bks = bks
         self.wqs = wqs
         self.bqs = bqs
-
 
 class GameState:
     """
