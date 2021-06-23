@@ -1,8 +1,14 @@
+#most valuable victim least valuable agresssor
+mvv_lva = {
+    "q": 900, "b": 330, "n": 320, "r": 500, "p": 100, "k": 0
+}
+
 class Move:
     """
     Class to define a move
     It contains all the information needed for representing a move
     """
+
     def __init__(self, start, end, board, enpassant=False, castle=False):
         """
         Constructor method for Move class
@@ -32,6 +38,33 @@ class Move:
                 self.pieceCaptured = "bp"
 
         self.castle = castle
+        self.score=-1000
+        if self.isEnpassantMove:
+            self.score = 0
+        if self.isPawnPromotion:
+            self.score=900
+        else:
+            if self.pieceCaptured[1] != '-' and self.pieceMoved[1] !='-':
+                self.score = mvv_lva[self.pieceCaptured[1]] - mvv_lva[self.pieceMoved[1]]
+        # elif self.pieceCaptured[1]=="q":
+        #     self.score=4.9
+        # elif self.pieceCaptured[1]=="r":
+        #     self.score=4.8
+        # elif self.pieceCaptured[1]=="b":
+        #     self.score=4.7
+        # elif self.pieceCaptured[1]=="n":
+        #     self.score=4.6
+        # elif self.pieceCaptured[1]=="p":
+        #     self.score=4.6
+            else:
+                if self.castle:
+                    self.score=-900
+                else:
+                    if self.pieceMoved[1]=="k":
+                        self.score=-1200
+                    else:
+                        if self.ec in [0,7]:
+                            self.score=-1100
 
     def __eq__(self, other):
         """

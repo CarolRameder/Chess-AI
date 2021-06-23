@@ -1,3 +1,4 @@
+import numpy as np
 import pygame as pg
 from Move import Move
 from State import GameState
@@ -6,7 +7,7 @@ from AI import *
 """
 Initialisation of global variables for the games
 """
-wid = height = 656
+wid = height = 700
 dim = 8
 field_sz = height // dim
 img = {}
@@ -17,7 +18,7 @@ def load_graphics():
     """
     Method for loading the graphical representation of the pieces
     """
-    pieces = ['bp', 'br', 'bn', 'bb', 'bk', 'bq', 'wp', 'wr', 'wn', 'wb', 'wk', 'wq']
+    pieces = np.array(['bp', 'br', 'bn', 'bb', 'bk', 'bq', 'wp', 'wr', 'wn', 'wb', 'wk', 'wq'])
     for p in pieces:
         img[p] = pg.transform.scale(pg.image.load("images/" + p + ".png"), (field_sz, field_sz))
 
@@ -72,9 +73,22 @@ def main():
     valid_mov = current.get_valid_moves()
     flag = False
 
+    f = open("config.txt", "r")
+    wh_type=f.readline()
+    wh_type = wh_type[:len(wh_type) - 1]
+    bl_type=f.readline()
+    bl_type = bl_type[:len(bl_type) - 1]
+    f.close()
+
     #HARDCODED game modes
-    humW=True #True if played by human, false otherwise
-    humB=False
+    if wh_type=="human":
+        humW=True
+    else:
+        humW=False
+    if bl_type == "human":
+        humB = True
+    else:
+        humB = False
 
     gameOver=False
     run=True
@@ -122,9 +136,6 @@ def main():
         #AI move
         if not gameOver and not humTurn:
             ai_move = ai(current, valid_mov)
-            #ai_move=findRand(valid_mov)
-            if ai_move is None:
-                ai_move=findRand(valid_mov)
             current.make_move(ai_move)
             flag=True
 
@@ -143,13 +154,10 @@ def main():
         draw_game_state(screen, current)
         if current.checkMate or current.staleMate:
             gameOver=True
-        #pygame front end actualisation
 
+        #pygame front end actualisation
         clock.tick(MAX_FPS)
         pg.display.flip()
-
-
-
 
 if __name__ == "__main__":
     main()

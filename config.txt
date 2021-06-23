@@ -1,0 +1,10 @@
+human
+ai
+5
+
+1.White player type (human/ai)
+2.Black player type (human/ai)
+3.Depth of negamax tree search (int)
+
+for greedy and random change in engine.py line 132
+for changing the between minimax and negamax optiimized and pruned change on ai.py line 309-310
